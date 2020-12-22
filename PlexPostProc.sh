@@ -37,13 +37,18 @@
 #******************************************************************************
 
 TMPFOLDER="/tmp"
-ENCODER="ffmpeg"  # Encoder to use:
-                  # "ffmpeg" for FFMPEG [DEFAULT]
-                  # "handbrake" for HandBrake
+ENCODER="handbrake"  # Encoder to use:
+                  # "ffmpeg" for FFMPEG 
+                  # "handbrake" for HandBrake [DEFAULT]
                   # "nvtrans" for Plex Transcoder with NVENC support
 RES="720"         # Resolution to convert to:
                   # "720" = 720 Vertical Resolution
                   # "1080" = 1080 Vertical Resolution
+		  
+CONTAINER="mp4"
+if [[ $ENCODER != "handbrake" ]]; then
+    CONTAINER="mkv"
+fi
 
 #******************************************************************************
 #  Do not edit below this line
@@ -68,7 +73,7 @@ if [ ! -z "$1" ]; then
 
    FILENAME=$1 	# %FILE% - Filename of original file
 
-   TEMPFILENAME="$(mktemp).mkv"  # Temporary File Name for transcoding
+   TEMPFILENAME="$(mktemp).$CONTAINER"  # Temporary File Name for transcoding
 
    LOCKFILE="$(mktemp).ppplock"  # [WORKAROUND] Temporary File for blocking simultaneous scripts from ending early
    touch $LOCKFILE # Create the lock file
@@ -89,13 +94,13 @@ if [ ! -z "$1" ]; then
    echo "$(date +"%Y%m%d-%H%M%S"): Starting transcode of $FILENAME to $TEMPFILENAME" | tee -a $LOGFILE
    if [[ $ENCODER == "handbrake" ]]; then
      echo "You have selected HandBrake" | tee -a $LOGFILE
-     HandBrakeCLI -i "$FILENAME" -f mkv --aencoder copy -e qsv_h264 --x264-preset veryfast --x264-profile auto -q 16 --maxHeight $RES --decomb bob -o "$TEMPFILENAME"
+     HandBrakeCLI -i "$FILENAME" --aencoder copy -e qsv_h264 --x264-preset veryfast --x264-profile auto -q 16 --maxHeight $RES --decomb bob -o "$TEMPFILENAME"
      check_errs $? "Failed to convert using Handbrake."
    elif [[ $ENCODER == "ffmpeg" ]]; then
      echo "You have selected FFMPEG" | tee -a $LOGFILE
      ffmpeg -i "$FILENAME" -s hd$RES -c:v libx264 -preset veryfast -vf yadif -c:a copy "$TEMPFILENAME"
      check_errs $? "Failed to convert using FFMPEG."
-	 elif [[ $ENCODER == "nvtrans" ]]; then
+   elif [[ $ENCODER == "nvtrans" ]]; then
      export FFMPEG_EXTERNAL_LIBS="$(find ~/Library/Application\ Support/Plex\ Media\ Server/Codecs/ -name "libmpeg2video_decoder.so" -printf "%h\n")/"
      check_errs $? "Failed to convert using smart Plex Transcoder (NVENC). libmpeg2video_decoder.so not found."
      export LD_LIBRARY_PATH="/usr/lib/plexmediaserver:/usr/lib/plexmediaserver/lib/"
@@ -118,7 +123,7 @@ if [ ! -z "$1" ]; then
        BUF=$(echo - | perl -lane "print ${MBR} * 2.0")
        /usr/lib/plexmediaserver/Plex\ Transcoder -y -hide_banner -hwaccel nvdec -i "$FILENAME" -c:v h264_nvenc -b:v "${ABR}M" -maxrate:v "${MBR}M" -profile:v high -bf:v 3 -bufsize:v "${BUF}M" -preset:v hq -forced-idr:v 1 -c:a copy "$TEMPFILENAME"
 	     check_errs $? "Failed to convert using smart Plex Transcoder (NVENC)."
-	  fi
+   fi
    else
      echo "Oops, invalid ENCODER string.  Using Default [FFMpeg]." | tee -a $LOGFILE
      ffmpeg -i "$FILENAME" -s hd$RES -c:v libx264 -preset veryfast -vf yadif -c:a copy "$TEMPFILENAME"
@@ -134,7 +139,7 @@ if [ ! -z "$1" ]; then
    rm -f "$FILENAME" # Delete original in .grab folder
    check_errs $? "Failed to remove original file: $FILENAME"
 
-   mv -f "$TEMPFILENAME" "${FILENAME%.ts}.mkv" # Move completed tempfile to .grab folder/filename
+   mv -f "$TEMPFILENAME" "${FILENAME%.ts}.$CONTAINER" # Move completed tempfile to .grab folder/filename
    check_errs $? "Failed to move converted file: $TEMPFILENAME"
 
    rm -f "$LOCKFILE" # Delete the lockfile after completing
